@@ -1,87 +1,134 @@
 App = {
-  web3Provider: null,
-  contracts: {},
-  account: '0x0',
+    web3Provider: null,
+    contracts: {},
+    account: '0x0',
+    hasVoted: false,
 
-  //initialize app
-  init: function() {
-    return App.initWeb3(); //initialize web3
-  },
-
-  //connects our client side application to our local block chain
-  initWeb3: function() {
-    // TODO: refactor conditional
-    if (typeof web3 !== 'undefined') {
-      // If a web3 instance is already provided by Meta Mask.If we login with metamask it will provide us with a web3 provider
-      App.web3Provider = web3.currentProvider; //setting the web3 provider to our app web3 provider
-      web3 = new Web3(web3.currentProvider);
-    } else {
-      // Specify default instance if no web3 instance provided
-      App.web3Provider = new Web3.providers.HttpProvider('http://localhost:7545');
-      web3 = new Web3(App.web3Provider);
-    }
-    return App.initContract(); //Once connected, we'll initialize our contract
-  },
-
-  //vvv This fuction loads our contract to our front end app so that we can interact with it
-  initContract: function() {
-    $.getJSON("Election.json", function(election) {         // load a json file to our election artifact
-      // Instantiate a new truffle contract from the artifact
-      App.contracts.Election = TruffleContract(election);   // this truffle contract is the actual contract we can interact with inside our app 
-      // Connect provider to interact with contract
-      App.contracts.Election.setProvider(App.web3Provider);
-
-      return App.render(); //Now we can render our app
-    });
-  },
-
-  //vvv This function will add all the layout contents into our page
-  render: function() {
-    var electionInstance;
-    var loader = $("#loader");
-    var content = $("#content");
-
-    loader.show();
-    content.hide();
-
-    // Load account data
-    web3.eth.getCoinbase(function(err, account) { //provide us the account currently connected to the blockchain
-      if (err === null) {
-        App.account = account;
-        $("#accountAddress").html("Your Account: " + account);
+    //initialize app
+    init: function() {
+      return App.initWeb3();
+    },
+  
+    //initialize web3
+    initWeb3: function() {
+      // TODO: refactor conditional
+      if (typeof web3 !== 'undefined') {
+        // If a web3 instance is already provided by Meta Mask.
+        App.web3Provider = web3.currentProvider;
+        web3 = new Web3(web3.currentProvider);
+      } else {
+        // Specify default instance if no web3 instance provided
+        App.web3Provider = new Web3.providers.HttpProvider('http://localhost:7545');
+        web3 = new Web3(App.web3Provider);
       }
-    });
+      return App.initContract();
+    },
 
-    // Load contract data
-    App.contracts.Election.deployed().then(function(instance) { //getting a copy of our deployed contract
-      electionInstance = instance;
-      return electionInstance.candidatesCount();
-    }).then(function(candidatesCount) {
-      var candidatesResults = $("#candidatesResults");
-      candidatesResults.empty();
-
-      for (var i = 1; i <= candidatesCount; i++) {
-        electionInstance.candidates(i).then(function(candidate) {
-          var id = candidate[0];
-          var name = candidate[1];
-          var voteCount = candidate[2];
-
-          // Render candidate Result
-          var candidateTemplate = "<tr><th>" + id + "</th><td>" + name + "</td><td>" + voteCount + "</td></tr>"
-          candidatesResults.append(candidateTemplate);
+    //initialize contract
+    initContract: function() {
+      $.getJSON("Election.json", function(election) {
+        // Instantiate a new truffle contract from the artifact
+        App.contracts.Election = TruffleContract(election);
+        // Connect provider to interact with contract
+        App.contracts.Election.setProvider(App.web3Provider);
+  
+        App.listenForEvents();
+  
+        return App.render();
+      });
+    },
+  
+    // Listen for events emitted from the contract
+    listenForEvents: function() {
+      App.contracts.Election.deployed().then(function(instance) {
+        // Restart Chrome if you are unable to receive this event
+        // This is a known issue with Metamask
+        // https://github.com/MetaMask/metamask-extension/issues/2393
+        instance.votedEvent({}, {
+          fromBlock: 0,
+          toBlock: 'latest'
+        }).watch(function(error, event) {
+          console.log("event triggered", event)
+          // Reload when a new vote is recorded
+          App.render();
         });
-      }
+      });
+    },
+  
+    render: function() {
+      var electionInstance;
+      var loader = $("#loader");
+      var content = $("#content");
+  
+      loader.show();
+      content.hide();
+  
+      // Load account data
+      web3.eth.getCoinbase(function(err, account) {
+        if (err === null) {
+          App.account = account;
+          $("#accountAddress").html("Your Account: " + account);
+        }
+      });
+  
+      // Load contract data
+      App.contracts.Election.deployed().then(function(instance) {
+        electionInstance = instance;
+        return electionInstance.candidatesCount();
+      }).then(function(candidatesCount) {
+        var candidatesResults = $("#candidatesResults");
+        candidatesResults.empty();
+  
+        var candidatesSelect = $('#candidatesSelect');
+        candidatesSelect.empty();
+  
+        for (var i = 1; i <= candidatesCount; i++) {
+          electionInstance.candidates(i).then(function(candidate) {
+            var id = candidate[0];
+            var name = candidate[1];
+            var voteCount = candidate[2];
+  
+            // Render candidate Result
+            var candidateTemplate = "<tr><th>" + id + "</th><td>" + name + "</td><td>" + voteCount + "</td></tr>"
+            candidatesResults.append(candidateTemplate);
+  
+            // Render candidate ballot option
+            var candidateOption = "<option value='" + id + "' >" + name + "</ option>"
+            candidatesSelect.append(candidateOption);
+          });
+        }
+        return electionInstance.voters(App.account);
+      }).then(function(hasVoted) {
+        // Do not allow a user to vote
+        if(hasVoted) {
+          $('form').hide();
+        }
+        loader.hide();
+        content.show();
+      }).catch(function(error) {
+        console.warn(error);
+      });
+    },
+  
+    castVote: function() {
+      var candidateId = $('#candidatesSelect').val();
+      App.contracts.Election.deployed().then(function(instance) {
+        return instance.vote(candidateId, { from: App.account });
+      }).then(function(result) {
+        // Wait for votes to update
+        $("#content").hide();
+        $("#loader").show();
+      }).catch(function(err) {
+        console.error(err);
+      });
+    }
+  };
 
-      loader.hide();
-      content.show();
-    }).catch(function(error) {
-      console.warn(error);
+
+  //initialize app when the windows load
+  $(function() {
+    $(window).load(function() {
+      App.init();
     });
-  }
-};
-
-$(function() {
-  $(window).load(function() {
-    App.init();
   });
-});
+  
