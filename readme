@@ -1,0 +1,12 @@
+Prerequisite:
+1)node.js
+2)truffleframe work --> open terminal and type "$ npm install -g truffle"
+2)Ganache
+4)MetaMask on chrome // connect the metamask to custom network "http://localhost:7545"
+
+
+How setup:
+1)start ganache
+2)open terminal and type "$ truffle migrate --reset"
+3)open another terminal type "$ npc run dev"      // it should open a the home page in the browser
+						     if not open the home page index.html
